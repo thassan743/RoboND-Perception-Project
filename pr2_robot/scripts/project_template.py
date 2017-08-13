@@ -55,10 +55,21 @@ def pcl_callback(pcl_msg):
     pcl_cloud = ros_to_pcl(pcl_msg)
     
     # TODO: Statistical Outlier Filtering
+    # Start by creating a filter object: 
+    outlier_filter = pcl_cloud.make_statistical_outlier_filter()
+
+    # Set the number of neighboring points to analyze for any given point
+    outlier_filter.set_mean_k(50)
+
+    # Any point with a mean distance larger than global (mean distance+x*std_dev) will be considered outlier
+    outlier_filter.set_std_dev_mul_thresh(1.0)
+
+    # Finally call the filter function for magic
+    outlier_filtered = outlier_filter.filter()
 
     # TODO: Voxel Grid Downsampling
     # Create a VoxelGrid filter object for our input point cloud
-    vox = pcl_cloud.make_voxel_grid_filter()
+    vox = outlier_filtered.make_voxel_grid_filter()
 
     # Choose a voxel (also known as leaf) size
     LEAF_SIZE = 0.01  
