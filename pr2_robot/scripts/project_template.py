@@ -53,36 +53,23 @@ def pcl_callback(pcl_msg):
 
     # TODO: Convert ROS msg to PCL data
     pcl_cloud = ros_to_pcl(pcl_msg)
-    
-    # TODO: Statistical Outlier Filtering
-    # Start by creating a filter object: 
-    outlier_filter = pcl_cloud.make_statistical_outlier_filter()
-
-    # Set the number of neighboring points to analyze for any given point
-    outlier_filter.set_mean_k(50)
-
-    # Any point with a mean distance larger than global (mean distance+x*std_dev) will be considered outlier
-    outlier_filter.set_std_dev_mul_thresh(0.1)
-
-    # Finally call the filter function for magic
-    outlier_filtered = outlier_filter.filter()
 
     # TODO: Voxel Grid Downsampling
     # Create a VoxelGrid filter object for our input point cloud
-    vox = outlier_filtered.make_voxel_grid_filter()
+    vox = pcl_cloud.make_voxel_grid_filter()
 
     # Choose a voxel (also known as leaf) size
-    LEAF_SIZE = 0.01  
+    LEAF_SIZE = 0.005  
 
     # Set the voxel (or leaf) size  
     vox.set_leaf_size(LEAF_SIZE, LEAF_SIZE, LEAF_SIZE)
 
     # Call the filter function to obtain the resultant downsampled point cloud
-    cloud_filtered = vox.filter()
+    vox_filtered = vox.filter()
 
     # TODO: PassThrough Filter
     # Create a PassThrough filter object.
-    passthrough = cloud_filtered.make_passthrough_filter()
+    passthrough = vox_filtered.make_passthrough_filter()
 
     # Assign axis and range to the passthrough filter object.
     filter_axis = 'z'
@@ -92,27 +79,27 @@ def pcl_callback(pcl_msg):
     passthrough.set_filter_limits (axis_min, axis_max)
 
     # Finally use the filter function to obtain the resultant point cloud. 
-    cloud_filtered = passthrough.filter()
+    cloud_filtered_z = passthrough.filter()
     
     # Create another PassThrough filter in the x direction to remove the drop boxes
-    passthrough = cloud_filtered.make_passthrough_filter()
+    passthrough = cloud_filtered_z.make_passthrough_filter()
     filter_axis = 'x'
     passthrough.set_filter_field_name (filter_axis)
     axis_min = 0.33
     axis_max = 0.9
     passthrough.set_filter_limits (axis_min, axis_max)
-    cloud_filtered = passthrough.filter()
+    cloud_filtered_z_x = passthrough.filter()
 
     # TODO: RANSAC Plane Segmentation
     # Create the segmentation object
-    seg = cloud_filtered.make_segmenter()
+    seg = cloud_filtered_z_x.make_segmenter()
 
     # Set the model you wish to fit 
     seg.set_model_type(pcl.SACMODEL_PLANE)
     seg.set_method_type(pcl.SAC_RANSAC)
 
     # Max distance for a point to be considered fitting the model
-    max_distance = 0.01
+    max_distance = 0.005
     seg.set_distance_threshold(max_distance)
 
     # TODO: Extract inliers and outliers
@@ -120,19 +107,26 @@ def pcl_callback(pcl_msg):
     inliers, coefficients = seg.segment()
     
     # Extract inliers = table
-    cloud_table = cloud_filtered.extract(inliers, negative=False)
+    cloud_table = cloud_filtered_z_x.extract(inliers, negative=False)
     
     # Extract outliers = objects
-    cloud_objects = cloud_filtered.extract(inliers, negative=True)
+    cloud_objects = cloud_filtered_z_x.extract(inliers, negative=True)
     
-    # Add another Statistical Outlier Filter to remove remaining noise from the objects after RANSAC.
-    object_outlier_filter = cloud_objects.make_statistical_outlier_filter()
-    object_outlier_filter.set_mean_k(50)
-    object_outlier_filter.set_std_dev_mul_thresh(0.1)
-    cloud_objects_filtered = object_outlier_filter.filter()
+    # TODO: Statistical Outlier Filtering
+    # Start by creating a filter object: 
+    outlier_filter = cloud_objects.make_statistical_outlier_filter()
+
+    # Set the number of neighboring points to analyze for any given point
+    outlier_filter.set_mean_k(10)
+
+    # Any point with a mean distance larger than global (mean distance+x*std_dev) will be considered outlier
+    outlier_filter.set_std_dev_mul_thresh(0.1)
+
+    # Finally call the filter function for magic
+    outlier_filtered = outlier_filter.filter()
 
     # TODO: Euclidean Clustering
-    white_cloud = XYZRGB_to_XYZ(cloud_objects_filtered)
+    white_cloud = XYZRGB_to_XYZ(outlier_filtered)
     tree = white_cloud.make_kdtree()
     
     # Create a cluster extraction object
@@ -142,9 +136,9 @@ def pcl_callback(pcl_msg):
     # as well as minimum and maximum cluster size (in points)
     # NOTE: These are poor choices of clustering parameters
     # Your task is to experiment and find values that work for segmenting objects.
-    ec.set_ClusterTolerance(0.05)
-    ec.set_MinClusterSize(100)
-    ec.set_MaxClusterSize(2500)
+    ec.set_ClusterTolerance(0.03)
+    ec.set_MinClusterSize(50)
+    ec.set_MaxClusterSize(3000)
     
     # Search the k-d tree for clusters
     ec.set_SearchMethod(tree)
@@ -170,7 +164,7 @@ def pcl_callback(pcl_msg):
     cluster_cloud.from_list(color_cluster_point_list)
 
     # TODO: Convert PCL data to ROS messages
-    ros_cloud_objects = pcl_to_ros(cloud_objects_filtered)
+    ros_cloud_objects = pcl_to_ros(outlier_filtered)
     ros_cloud_table   = pcl_to_ros(cloud_table)
     ros_cluster_cloud = pcl_to_ros(cluster_cloud)
 
@@ -186,7 +180,7 @@ def pcl_callback(pcl_msg):
     detected_objects = []
     for index, pts_list in enumerate(cluster_indices):
         # Grab the points for the cluster
-        pcl_cluster = cloud_objects_filtered.extract(pts_list)
+        pcl_cluster = outlier_filtered.extract(pts_list)
         
         # convert the cluster from pcl to ROS using helper function
         ros_cluster = pcl_to_ros(pcl_cluster)
@@ -221,7 +215,7 @@ def pcl_callback(pcl_msg):
     
     ####
     pcl_world_pub.publish(pcl_msg)
-    pcl_filtered_pub.publish(pcl_to_ros(cloud_objects_filtered))
+    pcl_filtered_pub.publish(pcl_to_ros(outlier_filtered))
     ####
     
     # Suggested location for where to invoke your pr2_mover() function within pcl_callback()
@@ -292,7 +286,7 @@ if __name__ == '__main__':
     ####
     
     # TODO: Load Model From disk
-    model = pickle.load(open('model_list3_100iter_hsv_linear.sav', 'rb'))
+    model = pickle.load(open('model_list3_100iter_hsv_rbf.sav', 'rb'))
     clf = model['classifier']
     encoder = LabelEncoder()
     encoder.classes_ = model['classes']
