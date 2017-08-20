@@ -93,6 +93,15 @@ def pcl_callback(pcl_msg):
 
     # Finally use the filter function to obtain the resultant point cloud. 
     cloud_filtered = passthrough.filter()
+    
+    # Create another PassThrough filter in the x direction to remove the drop boxes
+    passthrough = cloud_filtered.make_passthrough_filter()
+    filter_axis = 'x'
+    passthrough.set_filter_field_name (filter_axis)
+    axis_min = 0.33
+    axis_max = 0.9
+    passthrough.set_filter_limits (axis_min, axis_max)
+    cloud_filtered = passthrough.filter()
 
     # TODO: RANSAC Plane Segmentation
     # Create the segmentation object
@@ -177,7 +186,7 @@ def pcl_callback(pcl_msg):
     detected_objects = []
     for index, pts_list in enumerate(cluster_indices):
         # Grab the points for the cluster
-        pcl_cluster = cloud_objects.extract(pts_list)
+        pcl_cluster = cloud_objects_filtered.extract(pts_list)
         
         # convert the cluster from pcl to ROS using helper function
         ros_cluster = pcl_to_ros(pcl_cluster)
@@ -190,29 +199,29 @@ def pcl_callback(pcl_msg):
 
         # Make the prediction, retrieve the label for the result
         # and add it to detected_objects_labels list
-        #prediction = clf.predict(scaler.transform(feature.reshape(1,-1)))
-        #label = encoder.inverse_transform(prediction)[0]
-        #detected_objects_labels.append(label)
+        prediction = clf.predict(scaler.transform(feature.reshape(1,-1)))
+        label = encoder.inverse_transform(prediction)[0]
+        detected_objects_labels.append(label)
 
         # Publish a label into RViz
-        #label_pos = list(white_cloud[pts_list[0]])
-        #label_pos[2] += .4
-        #object_markers_pub.publish(make_label(label,label_pos, index))
+        label_pos = list(white_cloud[pts_list[0]])
+        label_pos[2] += .4
+        object_markers_pub.publish(make_label(label,label_pos, index))
         
         # Add the detected object to the list of detected objects.
-        #do = DetectedObject()
-        #do.label = label
-        #do.cloud = ros_cluster
-        #detected_objects.append(do)
+        do = DetectedObject()
+        do.label = label
+        do.cloud = ros_cluster
+        detected_objects.append(do)
     
-    #rospy.loginfo('Detected {} objects: {}'.format(len(detected_objects_labels), detected_objects_labels))
+    rospy.loginfo('Detected {} objects: {}'.format(len(detected_objects_labels), detected_objects_labels))
     
     # Publish the list of detected objects
-    #detected_objects_pub.publish(detected_objects)
+    detected_objects_pub.publish(detected_objects)
     
     ####
     pcl_world_pub.publish(pcl_msg)
-    pcl_filtered_pub.publish(pcl_to_ros(cloud_filtered))
+    pcl_filtered_pub.publish(pcl_to_ros(cloud_objects_filtered))
     ####
     
     # Suggested location for where to invoke your pr2_mover() function within pcl_callback()
@@ -283,11 +292,11 @@ if __name__ == '__main__':
     ####
     
     # TODO: Load Model From disk
-    #model = pickle.load(open('model_1000_iter_hsv_linear_default.sav', 'rb'))
-    #clf = model['classifier']
-    #encoder = LabelEncoder()
-    #encoder.classes_ = model['classes']
-    #scaler = model['scaler']
+    model = pickle.load(open('model_list3_100iter_hsv_linear.sav', 'rb'))
+    clf = model['classifier']
+    encoder = LabelEncoder()
+    encoder.classes_ = model['classes']
+    scaler = model['scaler']
 
     # Initialize color_list
     get_color_list.color_list = []
